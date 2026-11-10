@@ -1,0 +1,14 @@
+# outputs the tool writes into a project folder, in case someone runs it here
+sync.html
+sync_report.csv
+takes.csv
+.take-sync-cache/
+# audio
+*.wav
+*.aif
+*.aiff
+*.flac
+*.mp3
+*.m4a
+__pycache__/
+.DS_Store

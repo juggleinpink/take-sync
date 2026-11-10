@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Take Sync</title>
+<style>
+:root{--bg:#f7f5f0;--card:#fff;--ink:#1d1b18;--muted:#6b665d;--line:#e2ddd2;--accent:#8a2d2d;--bar:#cfc5b2;--bar2:#b9ab92;--region:rgba(138,45,45,.14)}
+@media (prefers-color-scheme:dark){:root{--bg:#161513;--card:#201e1b;--ink:#ece8e0;--muted:#a19a8d;--line:#35322c;--accent:#e08a7a;--bar:#8a7f6c;--bar2:#b39d78;--region:rgba(224,138,122,.18)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px}
+.top{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+h1{font-size:16px;margin:0 auto 0 0}
+select,input[type=text]{font:inherit;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:6px;padding:5px 10px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.45;cursor:default}
+.transport{display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.pos{font-variant-numeric:tabular-nums;font-size:20px;min-width:260px}
+.pos small{font-size:13px;color:var(--muted)}
+main{max-width:1300px;margin:0 auto;padding:12px 16px 40px}
+.timeline{position:relative;height:26px;margin:4px 0 8px 300px;border-bottom:1px solid var(--line);cursor:pointer}
+.tick{position:absolute;bottom:0;font-size:11px;color:var(--muted);transform:translateX(-50%);white-space:nowrap}
+.tick::after{content:"";position:absolute;left:50%;bottom:-4px;height:4px;border-left:1px solid var(--muted)}
+.rows{position:relative}
+.take{display:grid;grid-template-columns:300px 1fr;align-items:center;min-height:34px;border-radius:6px;cursor:pointer}
+.take:hover{background:var(--card)}
+.take.active{background:var(--card);outline:2px solid var(--accent)}
+.lab{display:flex;gap:8px;align-items:baseline;padding:0 8px;font-size:14px;overflow:hidden}
+.lab b{min-width:52px}
+.lab kbd{border:1px solid var(--line);border-radius:3px;padding:0 4px;font-size:11px;color:var(--muted)}
+.lab .m{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lane{position:relative;height:18px}
+.cov{position:absolute;top:3px;height:12px;border-radius:3px;background:var(--bar)}
+.take.partial .cov{background:var(--bar2)}
+.take.check .cov{background:repeating-linear-gradient(45deg,var(--bar2) 0 6px,transparent 6px 10px)}
+.overlay{position:absolute;top:0;bottom:0;pointer-events:none}
+.playhead{position:absolute;top:-30px;bottom:0;border-left:2px solid var(--accent)}
+.region{position:absolute;top:-30px;bottom:0;background:var(--region)}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:18px;font-size:14px}
+.panel h2{font-size:15px;margin:0 0 8px}
+.muted{color:var(--muted)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{text-align:left;padding:3px 6px;border-bottom:1px solid var(--line)}
+.editlane{display:grid;grid-template-columns:300px 1fr;align-items:center;min-height:30px;margin-bottom:6px;border-bottom:1px dashed var(--line)}
+.editlane .lane{height:22px}
+.seg{position:absolute;top:1px;height:20px;border-radius:3px;font-size:11px;line-height:20px;padding:0 4px;color:#fff;overflow:hidden;white-space:nowrap;cursor:pointer;border-right:2px solid var(--bg)}
+.seg.bad{background:repeating-linear-gradient(45deg,#b33 0 6px,#822 6px 12px)!important}
+tr.bad td{color:#c44}
+.hdl{position:absolute;top:-4px;height:30px;width:12px;margin-left:-6px;cursor:ew-resize;z-index:3;touch-action:none}
+.hdl::after{content:"";position:absolute;left:5px;top:0;bottom:0;border-left:2px solid var(--ink)}
+.hdl:hover::after,.hdl.drag::after{border-left-color:var(--accent);border-left-width:3px}
+.hdl .tip{position:absolute;top:-20px;left:8px;font-size:11px;background:var(--card);border:1px solid var(--line);border-radius:3px;padding:0 4px;white-space:nowrap;display:none}
+.hdl.drag .tip{display:block}
+td .nudge{padding:1px 6px;font-size:12px}
+.keys kbd{border:1px solid var(--line);border-radius:3px;padding:0 4px;font-size:12px}
+@media (max-width:700px){.timeline{margin-left:120px}.take,.editlane{grid-template-columns:120px 1fr}.lab .m{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1 id="ttl">Take sync</h1>
+    <select id="song"></select>
+    <label class="muted"><input type="checkbox" id="match" checked> match levels</label>
+  </div>
+  <div class="transport">
+    <button id="play" class="primary">Play</button>
+    <button id="back">−3 s</button><button id="fwd">+3 s</button>
+    <div class="pos" id="pos">0:00.0</div>
+    <button id="markA">Mark start [</button><button id="markB">Mark end ]</button>
+    <label class="muted"><input type="checkbox" id="loop"> loop region</label>
+    <button id="clear">Clear region</button>
+    <button id="splice" class="primary" title="Enter">Use this take from here (Enter)</button>
+    <label class="muted"><input type="checkbox" id="follow"> play the edit (f)</label>
+  </div>
+</header>
+<main>
+  <div class="timeline" id="timeline"></div>
+  <div class="editlane"><div class="lab" style="padding:0 8px"><b>EDIT</b><span class="m" id="editsum"></span></div><div class="lane" id="editlane"></div></div>
+  <div class="rows" id="rows"><div class="overlay" id="overlay"><div class="region" id="region" hidden></div><div class="playhead" id="ph"></div></div></div>
+
+  <div class="panel">
+    <h2>Edit (final selection)</h2>
+    <p class="muted" style="margin:0 0 8px">While listening, switch to the take you want and press <kbd>Enter</kbd> at the edit point: "from here on, use this take." Tick "play the edit" to hear the assembled version, switching at every edit point. Move an edit point by dragging its line on the EDIT strip (hold Shift for fine moves) or with the ◀ ▶ buttons in the list (Shift-click: 0.02 s). With "play the edit" on, every move replays from 2 s before the edit point so you hear the new splice. Saved in this browser, per song.</p>
+    <div class="transport" style="margin:0 0 8px">
+      <button id="exportE" class="primary">Export edit list (CSV)</button>
+      <input type="file" id="importE" accept=".csv" hidden><button id="importBtn">Import edit list</button>
+      <button id="resetE">Clear this song's edit</button>
+    </div>
+    <table id="etable"><thead><tr><th>#</th><th>From (ref)</th><th>To</th><th>Take</th><th>In take file</th><th>Note</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
+    <h2>Save region as a comparison group</h2>
+    <div class="transport" style="margin:0 0 8px">
+      <input type="text" id="gname" placeholder="Group name, e.g. Verse 2 high note" size="32">
+      <button id="addg">Add group (all takes that cover it)</button>
+      <button id="exportg" class="primary">Export timestamps CSV</button>
+    </div>
+    <p class="muted" style="margin:0 0 8px">Mark a region with <kbd>[</kbd> and <kbd>]</kbd>, then add it as a group: every take that covers that passage is listed with its own start and end time. Export gives a CSV of those timestamps, handy for notes to an editor or for cutting comparison clips.</p>
+    <table id="gtable"><thead><tr><th>Group</th><th>Takes</th><th>Region (reference)</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel keys">
+    <h2>How it works</h2>
+    <p style="margin:0 0 6px">The horizontal axis is the music, measured on the reference take (bold). Each bar shows what part of the song a take covers, so partials sit where they belong. Pressing a take's key (or clicking its row) switches to it at the same musical spot. Clicking a bar jumps there in that take.</p>
+    <p style="margin:0 0 6px"><kbd>space</kbd> play/pause · <kbd>1</kbd>–<kbd>9</kbd>, <kbd>0</kbd>, <kbd>q</kbd>–<kbd>p</kbd> switch take · <kbd>←</kbd>/<kbd>→</kbd> ±3 s · <kbd>↑</kbd>/<kbd>↓</kbd> previous/next take that covers this spot · <kbd>[</kbd> <kbd>]</kbd> mark region · <kbd>b</kbd> back to region start · <kbd>l</kbd> loop · <kbd>Enter</kbd> use this take from here · <kbd>f</kbd> play the edit</p>
+    <p class="muted" style="margin:0">Measure numbers ("~m.") are estimates interpolated from the starts_at_measure values in takes.csv; treat them as ±2–3 measures. They only appear once at least one take other than the reference has a measure number. Striped bars aligned poorly: check by ear. Takes are aligned by the notes being played; the alignment does not judge pitch.</p>
+  </div>
+</main>
+<script>
+const DATA = /*__DATA__*/null;
+const SONGS = DATA.songs;
+document.title = "Take Sync: " + DATA.title; document.getElementById("ttl").textContent = DATA.title + " take sync";
+const NS = "take-sync:" + DATA.title + ":";
+const KEYS = "1234567890qwertyuiop".split("");
+let S = null, cur = null, audios = {}, region = null, groups = [];
+try { groups = JSON.parse(localStorage.getItem(NS + "groups") || "[]"); } catch (e) {}
+const saveG = () => { try { localStorage.setItem(NS + "groups", JSON.stringify(groups)); } catch (e) {} };
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const fmt = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+
+function interp(x, xs, ys) {
+  if (x <= xs[0]) return ys[0] + (x - xs[0]);
+  const n = xs.length;
+  if (x >= xs[n - 1]) return ys[n - 1] + (x - xs[n - 1]);
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (xs[mid] <= x) lo = mid; else hi = mid; }
+  const f = (x - xs[lo]) / ((xs[hi] - xs[lo]) || 1);
+  return ys[lo] + f * (ys[hi] - ys[lo]);
+}
+function prep(t) { t.tt = t.map.map(p => p[0]); t.rt = t.map.map(p => p[1]);
+  // strictly increasing copy of ref times for the inverse map
+  t.rti = []; t.tti = []; let last = -1e9;
+  // where several take seconds map to one ref point (count-in, false start, extra bars), keep the first and
+  // the last of them, so switching lands at the start of the matching music, or after the extra material.
+  let runEnd = null;
+  t.rt.forEach((r, i) => {
+    if (r > last + 0.08) {
+      if (runEnd !== null && runEnd > t.tti[t.tti.length - 1] + 0.5) { t.rti.push(last + 0.04); t.tti.push(runEnd); }
+      t.rti.push(r); t.tti.push(t.tt[i]); last = r; runEnd = null;
+    } else runEnd = t.tt[i];
+  }); }
+const toRef = (t, s) => interp(s, t.tt, t.rt);
+const toTake = (t, r) => interp(r, t.rti, t.tti);
+const covers = (t, r) => r >= t.ref_lo - 0.5 && r <= t.ref_hi + 0.5;
+function measureAt(r) {
+  const [T, M] = S.measures; if (T.length < 2) return null;
+  if (r <= T[T.length - 1]) return interp(r, T, M);
+  const k = T.length - 1; return M[k] + (r - T[k]) * (M[k] - M[k - 1]) / (T[k] - T[k - 1]);
+}
+const X = r => `${Math.max(0, Math.min(100, (r / S.ref_dur) * 100))}%`;
+
+function load(name) {
+  Object.values(audios).forEach(a => { a.pause(); a.removeAttribute("src"); a.load(); });
+  audios = {}; S = SONGS.find(s => s.song === name); S.takes.forEach(prep);
+  try { localStorage.setItem(NS + "song", name); } catch (e) {}
+  region = null; drawRegion();
+  const rows = $("rows"); rows.querySelectorAll(".take").forEach(e => e.remove());
+  S.takes.forEach((t, i) => {
+    const a = new Audio(); a.preload = "metadata"; a.src = t.src; audios[t.take] = a;
+    a.addEventListener("ended", () => { if (cur === t) setPlayBtn(); });
+    const d = document.createElement("div");
+    d.className = "take" + (t.partial ? " partial" : "") + (t.conf === "check" ? " check" : "");
+    d.dataset.take = t.take;
+    const m = t.est_measure != null ? `~m. ${Math.round(t.est_measure)}` : "";
+    d.innerHTML = `<div class="lab"><kbd>${KEYS[i] || ""}</kbd><b></b><span class="m"></span></div><div class="lane"><div class="cov"></div></div>`;
+    d.querySelector("b").innerHTML = t.is_ref ? "<u></u>" : ""; (d.querySelector("u") || d.querySelector("b")).textContent = t.take_label;
+    d.querySelector(".m").textContent = [t.day, m, t.label].filter(Boolean).join(" · ");
+    d.title = `${t.file}\nmusic starts ${fmt(t.start_take)} in file = ${fmt(t.start_ref)} in reference\nlevel offset ${t.gain} dB · confidence: ${t.conf} (${t.why})`;
+    const cov = d.querySelector(".cov"); cov.style.left = X(t.ref_lo);
+    cov.style.width = `calc(${X(t.ref_hi)} - ${X(t.ref_lo)})`;
+    d.onclick = () => switchTo(t);
+    d.querySelector(".lane").onclick = e => { e.stopPropagation();
+      const rr = e.currentTarget.getBoundingClientRect(); const r = (e.clientX - rr.left) / rr.width * S.ref_dur;
+      if (covers(t, r)) { switchTo(t, r); } };
+    rows.appendChild(d);
+  });
+  const ov = $("overlay"); ov.style.left = getComputedStyle($("timeline")).marginLeft; ov.style.right = "0";
+  drawTicks(); renderEdit();
+  cur = S.takes.find(t => t.is_ref); cur.pos = Math.max(0, toTake(cur, Math.max(0, Math.min(...S.takes.map(t => t.start_ref)))) - 1); applyVolumes(); mark();
+  const a0 = audios[cur.take]; a0.currentTime = cur.pos;
+  a0.addEventListener("loadedmetadata", () => { if (a0.currentTime === 0) a0.currentTime = cur.pos; }, { once: true });
+  tick();
+}
+function drawTicks() {
+  const tl = $("timeline"); tl.innerHTML = "";
+  const [T] = S.measures; const step = S.ref_dur > 240 ? 30 : 15;
+  for (let r = 0; r <= S.ref_dur; r += step) {
+    const m = measureAt(r); const e = document.createElement("div"); e.className = "tick"; e.style.left = X(r);
+    e.textContent = fmt(r).replace(/\.\d$/, "") + (m != null && m >= 1 ? ` ~m.${Math.round(m)}` : ""); tl.appendChild(e);
+  }
+  tl.onclick = e => { const rr = tl.getBoundingClientRect(); seekRef((e.clientX - rr.left) / rr.width * S.ref_dur); };
+}
+function applyVolumes() {
+  const on = $("match").checked; const gs = S.takes.map(t => t.gain); const mx = Math.max(...gs);
+  S.takes.forEach(t => { audios[t.take].volume = on ? Math.pow(10, (t.gain - mx) / 20) : 1; });
+}
+function refPos() { return toRef(cur, audios[cur.take].currentTime || cur.pos || 0); }
+function switchTo(t, r) {
+  if (r == null) r = refPos();
+  if (!covers(t, r)) { flash(t); return; }
+  const old = audios[cur.take], playing = !old.paused; old.pause();
+  cur = t; const a = audios[t.take]; a.currentTime = Math.max(0, toTake(t, r));
+  if (playing) a.play(); mark(); tick();
+}
+function flash(t) { const d = document.querySelector(`.take[data-take="${CSS.escape(t.take)}"]`); d.animate([{ opacity: .3 }, { opacity: 1 }], 300); }
+function seekRef(r) {
+  if (!covers(cur, r)) { const t = S.takes.find(x => x.is_ref); if (covers(t, r)) { switchTo(t, r); return; } }
+  audios[cur.take].currentTime = Math.max(0, toTake(cur, r)); tick();
+}
+function mark() { document.querySelectorAll(".take").forEach(d => d.classList.toggle("active", d.dataset.take === cur.take)); setPlayBtn(); }
+function setPlayBtn() { $("play").textContent = audios[cur.take] && !audios[cur.take].paused ? "Pause" : "Play"; }
+function toggle() { const a = audios[cur.take]; if (a.paused) { if (region && (refPos() < region[0] || refPos() > region[1])) seekRef(region[0]); a.play(); } else a.pause(); setPlayBtn(); }
+function nudge(d) { const a = audios[cur.take]; a.currentTime = Math.max(0, a.currentTime + d); tick(); }
+function cycle(dir) {
+  const r = refPos(); const list = S.takes.filter(t => covers(t, r)); if (list.length < 2) return;
+  const i = list.indexOf(cur); switchTo(list[(i + dir + list.length) % list.length], r);
+}
+function drawRegion() {
+  const e = $("region"); if (!region || !S) { e.hidden = true; return; }
+  e.hidden = false; e.style.left = X(region[0]); e.style.width = `calc(${X(region[1])} - ${X(region[0])})`;
+}
+function tick() {
+  if (!S || !cur) return;
+  const r = refPos(); $("ph").style.left = X(r);
+  const m = measureAt(r);
+  $("pos").innerHTML = `${fmt(r)} <small>ref</small> ${m != null && m >= 1 ? ` · ~m. ${m.toFixed(1)}` : ""} <small>· ${esc(cur.take_label)} @ ${fmt(audios[cur.take].currentTime || 0)}</small>`;
+  document.querySelectorAll(".take").forEach(d => { const t = S.takes.find(x => x.take === d.dataset.take); d.style.opacity = covers(t, r) ? 1 : .45; });
+  if (region && $("loop").checked && !audios[cur.take].paused && r >= region[1]) seekRef(region[0]);
+}
+setInterval(tick, 80);
+
+function addGroup() {
+  if (!region) { $("gname").placeholder = "Mark a region first ( [ and ] )"; return; }
+  const name = $("gname").value.trim() || `${S.song} ${fmt(region[0])}`;
+  const m0 = measureAt(region[0]), m1 = measureAt(region[1]);
+  const meas = m0 != null && m0 >= 1 ? `~mm. ${Math.round(m0)}-${Math.round(m1)}` : `ref ${fmt(region[0])}-${fmt(region[1])}`;
+  const rows = S.takes.filter(t => covers(t, region[0]) && covers(t, region[1]))
+    .map(t => ({ take: t.take, start: toTake(t, region[0]), end: toTake(t, region[1]) }));
+  groups.push({ song: S.song, name, meas, region: [...region], rows }); saveG(); renderGroups(); $("gname").value = "";
+}
+function renderGroups() {
+  const tb = $("gtable").querySelector("tbody"); tb.innerHTML = "";
+  groups.forEach((g, i) => { const tr = document.createElement("tr");
+    tr.innerHTML = `<td></td><td></td><td></td><td><button>Remove</button></td>`;
+    tr.children[0].textContent = `${g.name} (${g.song})`; tr.children[1].textContent = g.rows.map(r => r.take).join(", ");
+    tr.children[2].textContent = `${fmt(g.region[0])}-${fmt(g.region[1])} · ${g.meas}`;
+    tr.querySelector("button").onclick = () => { groups.splice(i, 1); saveG(); renderGroups(); };
+    tb.appendChild(tr); });
+}
+function exportG() {
+  const q = v => `"${String(v).replace(/"/g, '""')}"`;
+  const L = ["song,take,measure_or_page,start_time,end_time,comparison_group"];
+  groups.forEach(g => g.rows.forEach(r => L.push([g.song, r.take, g.meas, fmt(r.start), fmt(r.end), g.name].map(q).join(","))));
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["﻿" + L.join("\n")], { type: "text/csv" }));
+  a.download = `sync-groups-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+}
+
+// ---------- edit (final selection) ----------
+let edits = {};
+try { edits = JSON.parse(localStorage.getItem(NS + "edits") || "{}"); } catch (e) {}
+const saveE = () => { try { localStorage.setItem(NS + "edits", JSON.stringify(edits)); } catch (e) {} };
+const E = () => (edits[S.song] ||= [{ r: 0, take: S.ref, note: "" }]);
+const takeOf = k => S.takes.find(t => t.take === k);
+const COLORS = ["#8a2d2d", "#2d5f8a", "#3d7a3a", "#8a6a2d", "#6a3d8a", "#2d8a7f", "#8a2d6a", "#5a5a5a", "#a0522d", "#33658a"];
+const colorOf = k => COLORS[S.takes.findIndex(t => t.take === k) % COLORS.length];
+function segments() {
+  const L = E().slice().sort((a, b) => a.r - b.r);
+  return L.map((s, i) => ({ ...s, i, r1: i + 1 < L.length ? L[i + 1].r : S.ref_dur }));
+}
+function segValid(g) {
+  const t = takeOf(g.take); if (!t) return false;
+  const lo = g.i === 0 ? Math.max(g.r, t.ref_lo) : g.r;           // first segment may start in silence
+  const hi = g.r1 >= S.ref_dur - 0.01 ? Math.min(g.r1, t.ref_hi) : g.r1;  // last segment may end in silence
+  return lo >= t.ref_lo - 1.5 && hi <= t.ref_hi + 1.5 && hi > lo;
+}
+function splice() {
+  const r = refPos(), L = E();
+  const near = L.find(s => Math.abs(s.r - r) < 0.3);
+  if (near) near.take = cur.take; else L.push({ r: Math.max(0, r), take: cur.take, note: "" });
+  L.sort((a, b) => a.r - b.r);
+  for (let i = L.length - 1; i > 0; i--) if (L[i].take === L[i - 1].take) L.splice(i, 1);  // redundant point
+  saveE(); renderEdit();
+}
+function srcTimes(g, last) {
+  const t = takeOf(g.take);
+  const a = g.i === 0 ? Math.min(toTake(t, Math.max(g.r, t.ref_lo)), t.start_take) - 1 : toTake(t, g.r);
+  const b = last ? t.dur : toTake(t, g.r1);
+  return [Math.max(0, a), Math.min(t.dur, b)];
+}
+function renderEdit() {
+  if (!S) return;
+  const segs = segments(), lane = $("editlane"); lane.innerHTML = "";
+  const tb = $("etable").querySelector("tbody"); tb.innerHTML = "";
+  segs.forEach((g, k) => {
+    const ok = segValid(g), last = k === segs.length - 1, t = takeOf(g.take);
+    const d = document.createElement("div"); d.className = "seg" + (ok ? "" : " bad");
+    d.style.left = X(g.r); d.style.width = `calc(${X(g.r1)} - ${X(g.r)})`; d.style.background = colorOf(g.take);
+    d.textContent = t.take_label; d.title = ok ? t.take_label : `${t.take_label} doesn't cover this whole stretch`;
+    d.onclick = () => switchTo(t, Math.max(g.r, t.ref_lo) + 0.01); lane.appendChild(d);
+    if (k > 0) {
+      const hd = document.createElement("div"); hd.className = "hdl"; hd.style.left = X(g.r);
+      hd.title = "Drag to move this edit point (hold Shift for fine)"; hd.innerHTML = '<span class="tip"></span>';
+      hd.addEventListener("pointerdown", e => startDrag(e, g.r, hd)); lane.appendChild(hd);
+    }
+    const m0 = measureAt(g.r), m1 = measureAt(g.r1), [a, b] = srcTimes(g, last);
+    const tr = document.createElement("tr"); if (!ok) tr.className = "bad";
+    tr.innerHTML = `<td>${k + 1}</td><td></td><td></td><td><select></select></td><td></td><td><input type="text" size="24"></td><td>${k ? "<button>Remove</button>" : ""}</td>`;
+    tr.children[1].textContent = (k === 0 ? "start" : fmt(g.r)) + (k && m0 != null && m0 >= 1 ? ` ~m.${Math.round(m0)}` : "");
+    tr.children[2].textContent = (last ? "end" : fmt(g.r1)) + (!last && m1 != null && m1 >= 1 ? ` ~m.${Math.round(m1)}` : "");
+    tr.children[4].textContent = `${fmt(a)}–${fmt(b)}` + (ok ? "" : "  (take doesn't cover this)");
+    const sel = tr.querySelector("select");
+    S.takes.forEach(x => sel.add(new Option(x.take_label, x.take)));
+    sel.value = g.take; sel.onchange = () => { E().find(s => s.r === g.r).take = sel.value; saveE(); renderEdit(); };
+    const inp = tr.querySelector("input"); inp.value = g.note || ""; inp.placeholder = "note for the editor";
+    inp.oninput = () => { E().find(s => s.r === g.r).note = inp.value; saveE(); };
+    const rm = tr.querySelector("button");
+    if (rm) rm.onclick = () => { const L = E(); L.splice(L.findIndex(s => s.r === g.r), 1); saveE(); renderEdit(); };
+    tr.children[1].style.cursor = "pointer";
+    tr.children[1].onclick = () => switchTo(t, Math.max(g.r, t.ref_lo) + 0.01);
+    if (k > 0) {
+      const box = document.createElement("span"); box.style.marginLeft = "6px";
+      [[-0.1, "◀ 0.1"], [0.1, "0.1 ▶"]].forEach(([dv, lab]) => {
+        const bt = document.createElement("button"); bt.className = "nudge"; bt.textContent = lab;
+        bt.title = "Move this edit point (Shift: 0.02 s)";
+        bt.onclick = ev => { ev.stopPropagation(); moveSplice(g.r, g.r + (ev.shiftKey ? dv / 5 : dv)); audition(); };
+        box.appendChild(bt);
+      });
+      tr.children[1].appendChild(box);
+    }
+    tb.appendChild(tr);
+  });
+  $("editsum").textContent = `${segs.length} seg · ` + [...new Set(segs.map(g => takeOf(g.take).take_label))].join(" ");
+}
+// ---- moving edit points ----
+let lastMoved = null;
+function moveSplice(from, to) {
+  const L = E().slice().sort((a, b) => a.r - b.r);
+  const i = L.findIndex(s => s.r === from); if (i <= 0) return from;
+  const lo = L[i - 1].r + 0.2, hi = i + 1 < L.length ? L[i + 1].r - 0.2 : S.ref_dur - 0.2;
+  const v = Math.round(Math.min(hi, Math.max(lo, to)) * 1000) / 1000;
+  L[i].r = v; edits[S.song] = L; lastMoved = v; saveE(); renderEdit(); return v;
+}
+function audition() {
+  // after a move, if "play the edit" is on, replay from 2 s before the edit point
+  if (lastMoved == null || !$("follow").checked) return;
+  const segs = segments(), r0 = Math.max(0, lastMoved - 2);
+  const g = segs.find(s => r0 >= s.r && r0 < s.r1) || segs[0], t = takeOf(g.take);
+  const wasPlaying = !audios[cur.take].paused;
+  switchTo(t, Math.max(r0, t.ref_lo)); if (!wasPlaying) toggle();
+}
+function startDrag(e, r0, hd) {
+  e.preventDefault(); e.stopPropagation();
+  const lane = $("editlane"), rect = lane.getBoundingClientRect(), x0 = e.clientX;
+  let rv = r0;
+  hd.classList.add("drag");
+  const tip = hd.querySelector(".tip");
+  const show = v => { const m = measureAt(v); tip.textContent = fmt(v) + (m != null && m >= 1 ? ` ~m.${m.toFixed(1)}` : ""); };
+  show(r0);
+  const move = ev => {
+    const scale = ev.shiftKey ? 0.1 : 1;
+    const target = r0 + (ev.clientX - x0) / rect.width * S.ref_dur * scale;
+    const L = E().slice().sort((a, b) => a.r - b.r), i = L.findIndex(s => s.r === rv);
+    const lo = L[i - 1].r + 0.2, hi = i + 1 < L.length ? L[i + 1].r - 0.2 : S.ref_dur - 0.2;
+    const v = Math.min(hi, Math.max(lo, target));
+    L[i].r = v; edits[S.song] = L; rv = v;
+    hd.style.left = X(v); show(v);
+    // live-resize the two neighbouring blocks
+    const blocks = lane.querySelectorAll(".seg");
+    const a = blocks[i - 1], b = blocks[i];
+    if (a) a.style.width = `calc(${X(v)} - ${X(L[i - 1].r)})`;
+    if (b) { const r1 = i + 1 < L.length ? L[i + 1].r : S.ref_dur; b.style.left = X(v); b.style.width = `calc(${X(r1)} - ${X(v)})`; }
+  };
+  const up = () => {
+    window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+    hd.classList.remove("drag");
+    const v = Math.round(rv * 1000) / 1000; E().find(s => s.r === rv).r = v; lastMoved = v;
+    saveE(); renderEdit(); audition();
+  };
+  window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+}
+
+// "play the edit": pre-seek the next take ~1.5 s ahead so the switch is near-seamless
+let pre = null;
+function followLoop() {
+  requestAnimationFrame(followLoop);
+  if (!S || !cur || !$("follow").checked || audios[cur.take].paused) { pre = null; return; }
+  const r = refPos(), segs = segments();
+  const here = segs.find(g => r >= g.r && r < g.r1) || segs[segs.length - 1];
+  if (here.take !== cur.take && r - here.r > 0.3) { switchTo(takeOf(here.take), r); pre = null; return; }
+  const nx = segs.find(g => g.r > r);
+  if (!nx || nx.take === cur.take) { pre = null; return; }
+  const t = takeOf(nx.take), a = audios[t.take];
+  if (nx.r - r < 1.5 && (!pre || pre.r !== nx.r)) { a.currentTime = Math.max(0, toTake(t, nx.r)); pre = nx; }
+  if (r >= nx.r) {
+    if (!pre || pre.r !== nx.r) a.currentTime = Math.max(0, toTake(t, nx.r));
+    audios[cur.take].pause(); cur = t; a.play(); mark(); pre = null;
+  }
+}
+requestAnimationFrame(followLoop);
+function exportE() {
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const L = ["song,segment,take,file,ref_in,ref_out,est_measure_in,est_measure_out,take_in,take_out,take_in_sec,take_out_sec,gain_db,covered,note"];
+  const keep = S;
+  for (const song of SONGS) {
+    if (!edits[song.song]) continue;
+    S = song; S.takes.forEach(t => { if (!t.tti) prep(t); });
+    const segs = segments();
+    segs.forEach((g, k) => {
+      const t = takeOf(g.take), last = k === segs.length - 1, [a, b] = srcTimes(g, last);
+      const m0 = measureAt(g.r), m1 = measureAt(g.r1);
+      L.push([song.song, k + 1, t.take_label, decodeURIComponent(t.src), g.r.toFixed(3), last ? "end" : g.r1.toFixed(3),
+        k && m0 != null && m0 >= 1 ? "~" + Math.round(m0) : "", !last && m1 != null && m1 >= 1 ? "~" + Math.round(m1) : "",
+        fmt(a), fmt(b), a.toFixed(3), b.toFixed(3), t.gain, segValid(g) ? "yes" : "NO", g.note || ""].map(q).join(","));
+    });
+  }
+  S = keep;
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["﻿" + L.join("\n")], { type: "text/csv" }));
+  a.download = `edit-list-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+}
+function parseCSV(text) {
+  const rows = []; let row = [], f = "", q = false;
+  text = text.replace(/^﻿/, "");
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"' && text[i + 1] === '"') { f += '"'; i++; } else if (c === '"') q = false; else f += c; }
+    else if (c === '"') q = true;
+    else if (c === ",") { row.push(f); f = ""; }
+    else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; row.push(f); rows.push(row); row = []; f = ""; }
+    else f += c;
+  }
+  if (f || row.length) { row.push(f); rows.push(row); }
+  return rows;
+}
+$("importBtn").onclick = () => $("importE").click();
+$("importE").onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  const rows = parseCSV(await file.text()); const hd = rows.shift(); const ix = n => hd.indexOf(n);
+  const bySong = {};
+  for (const r of rows) {
+    if (r.length < hd.length) continue;
+    const song = SONGS.find(s => s.song === r[ix("song")]); if (!song) continue;
+    const tk = song.takes.find(t => t.take_label === r[ix("take")]); if (!tk) continue;
+    (bySong[song.song] ||= []).push({ r: parseFloat(r[ix("ref_in")]), take: tk.take, note: r[ix("note")] || "" });
+  }
+  Object.assign(edits, bySong); saveE(); renderEdit(); e.target.value = "";
+};
+$("resetE").onclick = () => { delete edits[S.song]; saveE(); renderEdit(); };
+$("splice").onclick = splice;
+$("exportE").onclick = exportE;
+
+const sel = $("song"); SONGS.forEach(s => sel.add(new Option(s.song, s.song)));
+let saved = null; try { saved = localStorage.getItem(NS + "song"); } catch (e) {}
+if (saved && SONGS.some(s => s.song === saved)) sel.value = saved;
+sel.onchange = () => load(sel.value);
+$("match").onchange = applyVolumes;
+$("play").onclick = toggle; $("back").onclick = () => nudge(-3); $("fwd").onclick = () => nudge(3);
+$("markA").onclick = () => { const r = refPos(); region = [r, region && region[1] > r ? region[1] : Math.min(S.ref_dur, r + 8)]; drawRegion(); };
+$("markB").onclick = () => { const r = refPos(); region = [region && region[0] < r ? region[0] : Math.max(0, r - 8), r]; drawRegion(); };
+$("clear").onclick = () => { region = null; drawRegion(); };
+$("addg").onclick = addGroup; $("exportg").onclick = exportG;
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" && e.target.type === "text") return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === " ") { e.preventDefault(); toggle(); }
+  else if (k === "arrowleft") { e.preventDefault(); nudge(-3); }
+  else if (k === "arrowright") { e.preventDefault(); nudge(3); }
+  else if (k === "arrowup") { e.preventDefault(); cycle(-1); }
+  else if (k === "arrowdown") { e.preventDefault(); cycle(1); }
+  else if (k === "[") $("markA").click();
+  else if (k === "]") $("markB").click();
+  else if (k === "b" && region) seekRef(region[0]);
+  else if (k === "l") $("loop").checked = !$("loop").checked;
+  else if (k === "enter") { e.preventDefault(); splice(); }
+  else if (k === "f") $("follow").checked = !$("follow").checked;
+  else { const i = KEYS.indexOf(k); if (i >= 0 && S.takes[i]) switchTo(S.takes[i]); }
+});
+renderGroups(); load(sel.value);
+</script>
+</body>
+</html>
